@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -23,18 +24,22 @@ public interface MidStockTradeRepository extends JpaRepository<MidStockTrade, Lo
             "AND t.midStock.id = :midStockId")
     List<MidStockTrade> findBuyMidStock(@Param("memberId") Long memberId, @Param("midStockId") Long midStockId);
 
-    //오늘 매수했는지 확인
+    // 오늘 매수했는지 확인
     @Query("SELECT t FROM MidStockTrade t " +
             "WHERE t.member.id = :memberId " +
             "AND t.midStock.id = :midStockId " +
-            "AND FUNCTION('DATE', t.createdAt) = CURRENT_DATE")
-    Optional<MidStockTrade> findTodayBuyMidStock(@Param("memberId") Long memberId, @Param("midStockId") Long midStockId);
+            "AND CAST(t.createdAt AS date) = :currentDate")
+    Optional<MidStockTrade> findTodayBuyMidStock(@Param("memberId") Long memberId,
+                                                 @Param("midStockId") Long midStockId,
+                                                 @Param("currentDate") LocalDate currentDate);
 
     // 오늘 매도했는지 확인
     @Query("SELECT t FROM MidStockTrade t " +
             "WHERE t.member.id = :memberId " +
             "AND t.midStock.id = :midStockId " +
             "AND t.tradeType = 'SELL' " +
-            "AND FUNCTION('DATE', t.updatedAt) = CURRENT_DATE")
-    Optional<MidStockTrade> findTodaySellMidStock(@Param("memberId") Long memberId, @Param("midStockId") Long midStockId);
+            "AND CAST(t.updatedAt AS date) = :currentDate")
+    Optional<MidStockTrade> findTodaySellMidStock(@Param("memberId") Long memberId,
+                                                  @Param("midStockId") Long midStockId,
+                                                  @Param("currentDate") LocalDate currentDate);
 }

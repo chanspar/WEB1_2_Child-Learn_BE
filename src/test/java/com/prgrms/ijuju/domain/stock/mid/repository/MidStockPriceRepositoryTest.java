@@ -7,176 +7,139 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.test.annotation.Rollback;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.context.annotation.Import;
 
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
-@ActiveProfiles("test")
-@Transactional
+@DataJpaTest
+@Import(MidStockPriceRepositoryImpl.class)
 class MidStockPriceRepositoryTest {
+
     @Autowired
     private MidStockPriceRepository midStockPriceRepository;
 
     @Autowired
-    private MidStockRepository midStockRepository;
+    private EntityManager entityManager;
 
-    private MidStock stock;
+    private MidStock midStock;
     private LocalDateTime now;
 
     @BeforeEach
     void setUp() {
-        // 테스트용 주식 데이터 생성
-        stock = new MidStock("테스트주식");
-        midStockRepository.save(stock);
-        now = LocalDateTime.now();
+        // 테스트의 now를 오늘 날짜의 자정으로 설정
+        now = LocalDateTime.now().withHour(0).withMinute(1);
+        midStock = new MidStock("Test Stock");
+        entityManager.persist(midStock);
+
+        createTestData();
+        entityManager.flush();
+        entityManager.clear();
     }
 
-    @Test
-    @DisplayName("특정 주식의 가격 정보를 조회한다")
-    void findByMidStockId() {
-        // given
+    private void createTestData() {
+        // 3주 전 데이터
+        LocalDateTime threeWeeksAgo = now.minusWeeks(3);
+        createAndPersistPrice(10000L, 8000L, 9000L, threeWeeksAgo);
+
+        // 2주 전 데이터
+        LocalDateTime twoWeeksAgo = now.minusWeeks(2);
+        createAndPersistPrice(11000L, 9000L, 10000L, twoWeeksAgo);
+
+        // 1주 전 데이터
+        LocalDateTime oneWeekAgo = now.minusWeeks(1);
+        createAndPersistPrice(12000L, 10000L, 11000L, oneWeekAgo);
+
+        // 오늘 데이터
+        createAndPersistPrice(13000L, 11000L, 12000L, now);
+
+        // 다음 주 데이터
+        createAndPersistPrice(14000L, 12000L, 13000L, now.plusWeeks(1));
+    }
+
+    private void createAndPersistPrice(Long highPrice, Long lowPrice, Long avgPrice, LocalDateTime priceDate) {
         MidStockPrice price = MidStockPrice.builder()
-                .midStock(stock)
-                .highPrice(1000L)
-                .lowPrice(900L)
-                .avgPrice(950L)
-                .priceDate(now)
+                .highPrice(highPrice)
+                .lowPrice(lowPrice)
+                .avgPrice(avgPrice)
+                .priceDate(priceDate)
+                .midStock(midStock)
                 .build();
-        midStockPriceRepository.save(price);
-
-        // when
-        List<MidStockPrice> prices = midStockPriceRepository.findByMidStockId(stock.getId());
-
-        // then
-        assertThat(prices).hasSize(1);
-        MidStockPrice foundPrice = prices.get(0);
-        assertThat(foundPrice.getHighPrice()).isEqualTo(1000L);
-        assertThat(foundPrice.getLowPrice()).isEqualTo(900L);
-        assertThat(foundPrice.getAvgPrice()).isEqualTo(950L);
+        entityManager.persist(price);
     }
 
     @Test
-    @DisplayName("오래된 가격 데이터를 삭제한다")
-    @Rollback
-    void deleteOldData() {
-        // given
-        LocalDateTime oldDate = now.minusDays(31);
-        MidStockPrice oldPrice = MidStockPrice.builder()
-                .midStock(stock)
-                .highPrice(1000L)
-                .lowPrice(900L)
-                .avgPrice(950L)
-                .priceDate(oldDate)
-                .build();
-        midStockPriceRepository.save(oldPrice);
+    @DisplayName("오래된 데이터 삭제 테스트")
+    void deleteOldDataTest() {
+        LocalDateTime cutoffDate = now.minusWeeks(2).minusDays(1);
 
-        // when
-        midStockPriceRepository.deleteOldData(now.minusDays(30));
+        midStockPriceRepository.deleteOldData(cutoffDate);
+        entityManager.flush();
+        entityManager.clear();
 
-        // then
-        List<MidStockPrice> remainingPrices = midStockPriceRepository.findAll();
-        assertThat(remainingPrices).isEmpty();
+        List<MidStockPrice> remainingPrices = midStockPriceRepository.findByMidStockId(midStock.getId());
+        assertThat(remainingPrices).hasSize(4);
+        assertThat(remainingPrices)
+                .allMatch(price -> price.getPriceDate().isAfter(cutoffDate) ||
+                        price.getPriceDate().isEqual(cutoffDate));
     }
 
     @Test
-    @DisplayName("최신 가격 정보를 조회한다")
-    void findLatestPrice() {
-        // given
-        LocalDateTime yesterday = now.minusDays(1);
-        MidStockPrice oldPrice = MidStockPrice.builder()
-                .midStock(stock)
-                .highPrice(1000L)
-                .lowPrice(900L)
-                .avgPrice(950L)
-                .priceDate(yesterday)
-                .build();
-        midStockPriceRepository.save(oldPrice);
+    @DisplayName("오늘의 평균 가격 조회 테스트")
+    void findTodayAvgPriceTest() {
+        // 테스트 데이터가 오늘 날짜의 자정으로 설정되어 있음
+        long todayAvgPrice = midStockPriceRepository.findTodayAvgPrice(midStock.getId());
 
-        MidStockPrice newPrice = MidStockPrice.builder()
-                .midStock(stock)
-                .highPrice(1100L)
-                .lowPrice(1000L)
-                .avgPrice(1050L)
-                .priceDate(now)
-                .build();
-        midStockPriceRepository.save(newPrice);
+        assertThat(todayAvgPrice).isEqualTo(12000L);
+    }
 
-        // when
-        Optional<MidStockPrice> latestPrice = midStockPriceRepository.findLatestPrice(stock);
+    @Test
+    @DisplayName("최근 가격 조회 테스트")
+    void findLatestPriceTest() {
+        Optional<MidStockPrice> latestPrice = midStockPriceRepository.findLatestPrice(midStock);
 
-        // then
         assertThat(latestPrice).isPresent();
-        assertThat(latestPrice.get().getAvgPrice()).isEqualTo(1050L);
-        assertThat(latestPrice.get().getPriceDate()).isEqualTo(now);
+        assertThat(latestPrice.get().getAvgPrice()).isEqualTo(13000L);
     }
 
-//    @Test
-//    @DisplayName("가격 이력을 페이징하여 조회한다")
-//    void findPriceHistory() {
-//        // given
-//        List<MidStockPrice> prices = new ArrayList<>();
-//        for (int i = 0; i < 5; i++) {
-//            prices.add(MidStockPrice.builder()
-//                    .midStock(stock)
-//                    .highPrice(1000L + i * 100)
-//                    .lowPrice(900L + i * 100)
-//                    .avgPrice(950L + i * 100)
-//                    .priceDate(now.minusDays(i))
-//                    .build());
-//        }
-//        midStockPriceRepository.saveAll(prices);
-//
-//        // when
-//        List<MidStockPrice> foundPrices = midStockPriceRepository.findPriceHistory(
-//                stock,
-//                PageRequest.of(0, 3)
-//        );
-//
-//        // then
-//        assertThat(foundPrices).hasSize(3);
-//        assertThat(foundPrices.get(0).getPriceDate())
-//                .isAfter(foundPrices.get(1).getPriceDate());
-//    }
+    @Test
+    @DisplayName("2주 가격 정보 조회 테스트")
+    void find2WeeksPriceInfoTest() {
+        List<MidStockPrice> twoWeeksPrices = midStockPriceRepository.find2WeeksPriceInfo(midStock.getId());
+
+        assertThat(twoWeeksPrices).hasSize(3);
+        assertThat(twoWeeksPrices.get(0).getAvgPrice()).isEqualTo(10000L);
+        assertThat(twoWeeksPrices.get(twoWeeksPrices.size() - 1).getAvgPrice()).isEqualTo(12000L);
+    }
 
     @Test
-    @DisplayName("특정 주식의 2주치 과거 데이터를 조회한다")
-    void find2WeeksPriceInfo() {
-        // given
-        MidStock stock = new MidStock("테스트주식");
-        midStockRepository.save(stock);
+    @DisplayName("오늘 가격 조회 테스트")
+    void findTodayPriceTest() {
+        Optional<MidStockPrice> todayPrice = midStockPriceRepository.findTodayPrice(midStock.getId());
 
-        // 20일치 데이터 생성
-        for (int i = 0; i < 20; i++) {
-            MidStockPrice price = MidStockPrice.builder()
-                    .midStock(stock)
-                    .highPrice(1000L + (i * 100))
-                    .lowPrice(900L + (i * 100))
-                    .avgPrice(950L + (i * 100))
-                    .priceDate(LocalDateTime.now().minusDays(i))
-                    .build();
-            midStockPriceRepository.save(price);
-        }
+        assertThat(todayPrice).isPresent();
+        assertThat(todayPrice.get().getAvgPrice()).isEqualTo(12000L);
+    }
 
-        // when
-        List<MidStockPrice> prices = midStockPriceRepository.find2WeeksPriceInfo(stock.getId());
+    @Test
+    @DisplayName("특정 주식의 모든 가격 정보 조회 테스트")
+    void findByMidStockIdTest() {
+        List<MidStockPrice> allPrices = midStockPriceRepository.findByMidStockId(midStock.getId());
 
-        // then
-        assertThat(prices).hasSize(14); // 2주치 데이터만 조회되는지 확인
+        assertThat(allPrices).hasSize(5);
+    }
 
-        // 날짜 순서대로 정렬되었는지 확인
-        for (int i = 0; i < prices.size() - 1; i++) {
-            assertThat(prices.get(i).getHighPrice()).isEqualTo(2900L - (i * 100));
-        }
+    @Test
+    @DisplayName("향후 2주 가격 정보 조회 테스트")
+    void findFuture2WeeksPriceInfoTest() {
+        List<MidStockPrice> futurePrices = midStockPriceRepository.findFuture2WeeksPriceInfo(midStock.getId());
+
+        assertThat(futurePrices).hasSize(2);
+        assertThat(futurePrices)
+                .allMatch(price -> price.getPriceDate().isAfter(now.minusDays(1)));
     }
 }

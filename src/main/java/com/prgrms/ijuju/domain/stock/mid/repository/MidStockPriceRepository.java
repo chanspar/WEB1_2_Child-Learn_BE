@@ -18,7 +18,7 @@ public interface MidStockPriceRepository extends JpaRepository<MidStockPrice, Lo
     // 오늘 날짜의 평균 가격 가져오기
     @Query("SELECT p.avgPrice FROM MidStockPrice p " +
             "WHERE p.midStock.id = :stockId " +
-            "AND FUNCTION('DATE', p.priceDate) = CURRENT_DATE")
+            "AND CAST(p.priceDate AS date) = CAST(CURRENT_DATE AS date)")
     long findTodayAvgPrice(@Param("stockId") Long stockId);
 
 }

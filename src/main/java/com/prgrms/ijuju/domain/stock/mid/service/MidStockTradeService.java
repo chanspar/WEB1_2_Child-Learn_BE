@@ -25,6 +25,8 @@ import com.prgrms.ijuju.domain.wallet.repository.WalletRepository;
 import com.prgrms.ijuju.domain.wallet.exception.WalletException;
 import com.prgrms.ijuju.domain.wallet.exception.WalletErrorCode;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,13 +45,14 @@ public class MidStockTradeService {
 
     // 매수 주문  3가지의 구현이 필요함 (멤버, 포인트 필요)
     public boolean buyStock(Long memberId, Long midStockId, long tradePoint) {
+        LocalDate today = LocalDate.now(); // 시간대 설정 필요
         MidStock midStock = midStockRepository.findById(midStockId)
                 .orElseThrow(MidStockNotFoundException::new);
 
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(MidMemberNotFoundException::new);
         // 오늘 매수 했는지 확인
-        Optional<MidStockTrade> todayBuyMidStock = midStockTradeRepository.findTodayBuyMidStock(memberId, midStockId);
+        Optional<MidStockTrade> todayBuyMidStock = midStockTradeRepository.findTodayBuyMidStock(memberId, midStockId, today);
         if (todayBuyMidStock.isPresent()) {
             throw new MidAlreadyBoughtException();
         }
@@ -86,6 +89,7 @@ public class MidStockTradeService {
     public Map<String, Long> sellStock(Long memberId, Long midStockId) {
         long totalPoints = 0; // 매도시 포인트
         long investedPoints = 0; //투자한 포인트
+        LocalDate today = LocalDate.now(); // 시간대 설정 필요
         // 보유중인 주식 조회
         List<MidStockTrade> buyMidStock = midStockTradeRepository.findBuyMidStock(memberId, midStockId);
         if (buyMidStock.isEmpty()) {
@@ -93,7 +97,7 @@ public class MidStockTradeService {
         }
 
         // 오늘 매도 했는지 확인
-        Optional<MidStockTrade> todaySellMidStock = midStockTradeRepository.findTodaySellMidStock(memberId, midStockId);
+        Optional<MidStockTrade> todaySellMidStock = midStockTradeRepository.findTodaySellMidStock(memberId, midStockId, today);
         if (todaySellMidStock.isPresent()) {
             throw new MidAlreadySoldException();
         }
@@ -132,6 +136,7 @@ public class MidStockTradeService {
     public TradeAvailableResponse isTradeAvailable(Long memberId, Long midStockId) {
         boolean isPossibleBuy;
         boolean isPossibleSell;
+        LocalDate today = LocalDate.now(); // 시간대 설정 필요
 
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(MidMemberNotFoundException::new);
@@ -139,8 +144,8 @@ public class MidStockTradeService {
         MidStock midStock = midStockRepository.findById(midStockId)
                 .orElseThrow(MidStockNotFoundException::new);
 
-        Optional<MidStockTrade> todayBuyMidStock = midStockTradeRepository.findTodayBuyMidStock(memberId, midStockId);
-        Optional<MidStockTrade> todaySellMidStock = midStockTradeRepository.findTodaySellMidStock(memberId, midStockId);
+        Optional<MidStockTrade> todayBuyMidStock = midStockTradeRepository.findTodayBuyMidStock(memberId, midStockId, today);
+        Optional<MidStockTrade> todaySellMidStock = midStockTradeRepository.findTodaySellMidStock(memberId, midStockId, today);
 
         isPossibleBuy = todayBuyMidStock.isEmpty();
         isPossibleSell = todaySellMidStock.isEmpty();
